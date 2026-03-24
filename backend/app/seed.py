@@ -206,16 +206,16 @@ async def seed():
     try:
         async with async_session() as session:
             # Seed admin user
-            result = await session.execute(select(User).where(User.email == "admin@agentic.local"))
+            result = await session.execute(select(User).where(User.email == "admin@agentic.dev"))
             if not result.scalar_one_or_none():
                 session.add(User(
                     id=uuid.uuid4(),
-                    email="admin@agentic.local",
+                    email="admin@agentic.dev",
                     hashed_password=hash_password("admin123"),
                     full_name="System Admin",
                     role="admin",
                 ))
-                print("[+] Created admin user: admin@agentic.local / admin123")
+                print("[+] Created admin user: admin@agentic.dev / admin123")
             else:
                 print("[=] Admin user already exists")
 

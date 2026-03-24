@@ -54,7 +54,7 @@ async def test_seed_endpoint_local(client):
     """Seed should work in local environment."""
     r = await client.post("/api/auth/seed")
     assert r.status_code == 200
-    assert r.json()["email"] == "admin@agentic.local"
+    assert r.json()["email"] == "admin@agentic.dev"
 
 
 @pytest.mark.asyncio

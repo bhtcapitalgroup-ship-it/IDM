@@ -65,13 +65,13 @@ async def seed_admin(db: AsyncSession = Depends(get_db)):
     if not settings.is_local:
         raise HTTPException(status_code=403, detail="Seed endpoint disabled in this environment")
 
-    result = await db.execute(select(User).where(User.email == "admin@agentic.local"))
+    result = await db.execute(select(User).where(User.email == "admin@agentic.dev"))
     existing = result.scalar_one_or_none()
     if existing:
         return existing
     admin = User(
         id=uuid.uuid4(),
-        email="admin@agentic.local",
+        email="admin@agentic.dev",
         hashed_password=hash_password("admin123"),
         full_name="System Admin",
         role="admin",
