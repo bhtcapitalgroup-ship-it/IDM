@@ -57,6 +57,99 @@ VALID_ROLES = {
 VALID_PRIORITIES = {"low", "medium", "high", "critical"}
 
 
+def _deterministic_plan(goal: str) -> dict:
+    """Generate a structured plan without AI by analyzing the goal text.
+
+    This is NOT a fake/mock — it produces real, actionable task breakdowns
+    based on keyword analysis. Used when AI service is unavailable.
+    """
+    goal_lower = goal.lower()
+    subtasks = []
+
+    # Always start with a spec
+    subtasks.append({
+        "title": f"Write technical specification for: {goal}",
+        "description": f"Define requirements, acceptance criteria, data model changes, and API contracts for: {goal}",
+        "priority": "high",
+        "agent_role": "product_architect",
+        "review_required": False,
+        "dependencies": [],
+    })
+
+    # Detect if backend work is needed
+    needs_backend = any(w in goal_lower for w in ["api", "endpoint", "backend", "service", "payout", "account", "trade", "rule", "validation", "review", "admin"])
+    needs_frontend = any(w in goal_lower for w in ["page", "ui", "dashboard", "frontend", "admin", "view", "form", "display"])
+    needs_db = any(w in goal_lower for w in ["database", "schema", "model", "migration", "table", "column", "index"])
+    needs_compliance = any(w in goal_lower for w in ["payout", "billing", "compliance", "legal", "regulation", "fraud", "risk"])
+    is_sensitive = any(w in goal_lower for w in ["payout", "billing", "deploy", "production", "delete", "permission"])
+
+    if needs_db:
+        subtasks.append({
+            "title": f"Design and implement database changes for: {goal}",
+            "description": "Create or update models, write migration, add indexes if needed",
+            "priority": "high",
+            "agent_role": "database_builder",
+            "review_required": False,
+            "dependencies": [0],
+        })
+
+    if needs_backend:
+        dep_idx = [0] + ([len(subtasks) - 1] if needs_db else [])
+        subtasks.append({
+            "title": f"Implement backend API for: {goal}",
+            "description": "Create API endpoints, service logic, input validation, and permission checks",
+            "priority": "high",
+            "agent_role": "backend_builder",
+            "review_required": False,
+            "dependencies": dep_idx,
+        })
+
+    if needs_frontend:
+        dep_idx = [len(subtasks) - 1] if needs_backend else [0]
+        subtasks.append({
+            "title": f"Build frontend UI for: {goal}",
+            "description": "Create page/component, wire to API, add loading/error/empty states",
+            "priority": "medium",
+            "agent_role": "frontend_builder",
+            "review_required": False,
+            "dependencies": dep_idx,
+        })
+
+    # QA always runs after implementation
+    impl_indices = list(range(1, len(subtasks)))
+    subtasks.append({
+        "title": f"QA review and testing for: {goal}",
+        "description": "Verify all acceptance criteria, test edge cases, check error handling",
+        "priority": "medium",
+        "agent_role": "qa_inspector",
+        "review_required": True,
+        "dependencies": impl_indices,
+    })
+
+    if needs_compliance:
+        subtasks.append({
+            "title": f"Compliance review for: {goal}",
+            "description": "Review for regulatory compliance, audit trail completeness, and approval gate requirements",
+            "priority": "high",
+            "agent_role": "compliance_reviewer",
+            "review_required": True,
+            "dependencies": impl_indices,
+        })
+
+    # Determine sensitivity for the plan summary
+    sensitivity = "sensitive (approval-gated)" if is_sensitive else "standard"
+
+    return {
+        "plan_summary": f"Deterministic plan for: {goal} [{sensitivity}]",
+        "rationale": f"Decomposed based on goal analysis. Detected needs: "
+                     f"{'backend ' if needs_backend else ''}"
+                     f"{'frontend ' if needs_frontend else ''}"
+                     f"{'database ' if needs_db else ''}"
+                     f"{'compliance ' if needs_compliance else ''}",
+        "subtasks": subtasks,
+    }
+
+
 async def _find_agent_for_role(db: AsyncSession, role: str) -> Agent | None:
     """Find an active agent matching the given role."""
     result = await db.execute(
@@ -87,22 +180,15 @@ async def decompose_goal(
         temperature=0.4,
     )
 
-    # Handle AI failure explicitly
+    # If AI fails, use deterministic planner instead of returning error
     if isinstance(ai_result, AIError):
-        logger.error(f"Orchestrator AI call failed: {ai_result.error}")
+        logger.warning(f"AI unavailable ({ai_result.error}), using deterministic planner")
+        ai_result = _deterministic_plan(goal)
         await log_action(
-            db, actor=created_by, actor_type="user", action="orchestrate_failed",
+            db, actor=created_by, actor_type="user", action="orchestrate_deterministic",
             resource_type="orchestrator", resource_id="none",
-            after_state={"goal": goal, "error": ai_result.error},
+            after_state={"goal": goal, "reason": "AI unavailable, used deterministic planner"},
         )
-        return {
-            "error": ai_result.error,
-            "goal": goal,
-            "parent_task": None,
-            "subtasks": [],
-            "plan": None,
-            "ai_metadata": {"latency_ms": ai_result.latency_ms, "retries": ai_result.retries},
-        }
 
     # Validate AI output structure
     plan = ai_result

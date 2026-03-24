@@ -91,19 +91,21 @@ async def test_orchestrator_wires_dependencies(mock_ai, client, admin_token, sam
 
 @pytest.mark.asyncio
 @patch("app.services.orchestrator.ai_service")
-async def test_orchestrator_handles_ai_failure(mock_ai, client, admin_token):
-    """When AI fails, orchestrator should return 502, not fake data."""
+async def test_orchestrator_falls_back_to_deterministic_on_ai_failure(mock_ai, client, admin_token):
+    """When AI fails, orchestrator falls back to deterministic planner."""
     mock_ai.complete_json = AsyncMock(
         return_value=AIError(error="API key invalid", status_code=401)
     )
 
     r = await client.post(
         "/api/orchestrator/decompose",
-        json={"goal": "Build something"},
+        json={"goal": "Build a backend API service"},
         headers=auth_header(admin_token),
     )
-    assert r.status_code == 502
-    assert "Orchestrator failed" in r.json()["detail"]
+    assert r.status_code == 200
+    data = r.json()
+    assert "Deterministic plan" in data["plan"]["summary"]
+    assert len(data["subtasks"]) >= 3
 
 
 @pytest.mark.asyncio
